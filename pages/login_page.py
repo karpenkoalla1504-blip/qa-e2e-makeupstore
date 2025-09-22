@@ -1,29 +1,34 @@
+from time import sleep
 from urllib.parse import urljoin
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait as W
 from selenium.webdriver.support import expected_conditions as EC
-from time import sleep  # ← ДОБАВИТЬ
-from urllib.parse import urljoin
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait as W
-from selenium.webdriver.support import expected_conditions as EC
+
 
 class LoginPage:
-    # ТВОИ ТОЧНЫЕ ЛОКАТОРЫ (твои пути стоят первыми)
-    LOGIN_ICON = (By.CSS_SELECTOR, "body > div.site-wrap > div.main-wrap > header > div.header-middle > div > div.header-right-row > div.header-office")
+    # --- ТВОИ ТОЧНЫЕ ЛОКАТОРЫ ---
+    # Иконка/кнопка открытия попапа логина:
+    LOGIN_ICON = (By.CSS_SELECTOR,
+                  "body > div.site-wrap > div.main-wrap > header > div.header-middle > div > div.header-right-row > div.header-office")
     LOGIN_ICON_FALLBACK = (By.CSS_SELECTOR, ".header-office")
 
+    # Поля попапа:
     INPUT_EMAIL = (By.CSS_SELECTOR, "#login")
     INPUT_PASSWORD = (By.CSS_SELECTOR, "#pw")
 
+    # Кнопка сабмита в попапе:
     SUBMIT_BTN = (By.CSS_SELECTOR, "#form-auth > div > div > div:nth-child(6) > button")
     SUBMIT_BTN_FALLBACK = (By.CSS_SELECTOR, "#form-auth button[type='submit']")
 
-    def __init__(self, driver, base_url):
+    # Cookie-баннер (возможные варианты):
+    COOKIE_ACCEPT = (By.CSS_SELECTOR, "[data-testid='cookie-accept'], .cookie-accept, .cc-allow, .cookie-accept-button")
+
+    def __init__(self, driver, base_url: str):
         self.d = driver
         self.base = base_url.rstrip("/")
 
-    # ======== низкоуровневые помощники ========
+    # ---------- НИЗКОУРОВНЕВЫЕ ПОМОЩНИКИ ----------
     def _click(self, locator, timeout=10):
         W(self.d, timeout).until(EC.element_to_be_clickable(locator)).click()
 
@@ -36,46 +41,71 @@ class LoginPage:
                 pass
         el.send_keys(text)
 
+    def _is_any_visible(self, locators, timeout=10):
+        for loc in (locators if isinstance(locators, (list, tuple)) else [locators]):
+            try:
+                W(self.d, timeout).until(EC.visibility_of_element_located(loc))
+                return True
+            except Exception:
+                continue
+        return False
+
+    # ---------- БАЗОВЫЕ ДЕЙСТВИЯ ----------
     def open(self):
         self.d.get(self.base)
+        self.try_accept_cookies()
 
-    # ======== шаги логина ========
-    def open_login_popup(self):
-        """Кликаем по иконке, чтобы раскрылось окошко (не новый урл)."""
+    def try_accept_cookies(self):
+        try:
+            W(self.d, 3).until(EC.element_to_be_clickable(self.COOKIE_ACCEPT)).click()
+        except Exception:
+            pass
+
+    # ---------- ЛОГИН ----------
+    def open_login_popup(self) -> bool:
+        """Кликаем по иконке логина и ждём появления полей в попапе."""
         try:
             self._click(self.LOGIN_ICON, timeout=8)
-            return True
         except Exception:
             try:
                 self._click(self.LOGIN_ICON_FALLBACK, timeout=5)
-                return True
             except Exception:
                 return False
+        # ждём появления полей попапа — важно для CI
+        return self._is_any_visible([self.INPUT_EMAIL, self.INPUT_PASSWORD], timeout=8)
 
-    from time import sleep
-
-    def fill_credentials_and_submit(self, email, password):
-        self._type(self.INPUT_EMAIL, email, timeout=10)
-        self._type(self.INPUT_PASSWORD, password, timeout=10)
+    def fill_credentials_and_submit(self, email: str, password: str):
+        """Вводим логин/пароль и нажимаем кнопку. Даём времени на установку сессии."""
+        self._type(self.INPUT_EMAIL, email, timeout=12)
+        self._type(self.INPUT_PASSWORD, password, timeout=12)
         try:
-            self._click(self.SUBMIT_BTN, timeout=10)
+            self._click(self.SUBMIT_BTN, timeout=12)
         except Exception:
-            self._click(self.SUBMIT_BTN_FALLBACK, timeout=10)
+            self._click(self.SUBMIT_BTN_FALLBACK, timeout=12)
+        # дождёмся, что страница «успокоилась»
+        W(self.d, 12).until(lambda d: d.execute_script("return document.readyState") == "complete")
+        sleep(1.5)
 
-        # Ждём, что форма исчезнет или появится что-то новое
-        sleep(2)  # небольшой буфер после сабмита
-
-    def go_to_user_and_check_logged_in(self, timeout=10):
+    # ---------- ПРОВЕРКА АВТОРИЗАЦИИ ----------
+    def go_to_user_and_check_logged_in(self, timeout=10) -> bool:
         """
-        Пробуем несколько раз перейти на /user/, чтобы поймать успешный логин.
+        Открываем /user/ несколько раз: если остаёмся на /user/ — залогинены.
+        Если редиректит на /#auth — ещё подождём и повторим.
         """
         user_url = urljoin(self.base + "/", "user/")
-        for attempt in range(3):
+        for _ in range(5):  # несколько попыток на случай «ленивой» установки сессии
             self.d.get(user_url)
             W(self.d, timeout).until(lambda d: d.execute_script("return document.readyState") == "complete")
             current = self.d.current_url
             if current.startswith(user_url):
                 return True
-            sleep(2)  # ждём и пробуем ещё раз
+            # если попали на /#auth — подождём и попробуем снова
+            sleep(2.0)
         return False
 
+    # ---------- ПОЛНЫЙ ФЛОУ (если нужно одним вызовом) ----------
+    def login_flow(self, email: str, password: str) -> bool:
+        self.open()
+        assert self.open_login_popup(), "Не нашли и/или не открылся попап логина"
+        self.fill_credentials_and_submit(email, password)
+        return self.go_to_user_and_check_logged_in()
