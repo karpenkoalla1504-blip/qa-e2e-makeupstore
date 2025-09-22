@@ -5,7 +5,6 @@ from utils.logger import get_logger
 from dotenv import load_dotenv
 import pathlib
 
-# локально можно держать .env; на CI переменные окружения задаются в настройках
 load_dotenv(override=False)
 
 @pytest.fixture(scope="session")
@@ -23,28 +22,44 @@ def logger():
 @pytest.fixture
 def driver():
     opts = Options()
-    opts.add_argument("--headless=new")       # сними, если хочешь видеть браузер
+    headless = os.getenv("HEADLESS", "true").lower() in ("1", "true", "yes")
+    if headless:
+        opts.add_argument("--headless=new")
     opts.add_argument("--window-size=1400,900")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    d = webdriver.Chrome(options=opts)        # Selenium Manager сам подберёт chromedriver
+
+    # --- важные флаги для CI ---
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_argument("--no-first-run")
+    opts.add_argument("--no-default-browser-check")
+    opts.add_argument("--lang=en-US")
+    # можно переопределить UA через ENV USER_AGENT, иначе используем дефолтный «человеческий»
+    ua = os.getenv("USER_AGENT", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                 "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                 "Chrome/118.0.0.0 Safari/537.36")
+    opts.add_argument(f"--user-agent={ua}")
+
+    d = webdriver.Chrome(options=opts)
     yield d
     d.quit()
 
-# делаем скриншот при падении теста
+# скрин/HTML при падении
 @pytest.fixture(autouse=True)
 def screenshot_on_failure(request, driver):
     yield
-    rep_call = getattr(request.node, "rep_call", None)
-    if rep_call and rep_call.failed:
+    rep = getattr(request.node, "rep_call", None)
+    if rep and rep.failed:
         pathlib.Path("reports/screens").mkdir(parents=True, exist_ok=True)
-        fname = f"reports/screens/{request.node.name}.png"
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        driver.save_screenshot(f"reports/screens/{request.node.name}_{ts}.png")
         try:
-            driver.save_screenshot(fname)
+            with open(f"reports/screens/{request.node.name}_{ts}.html", "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
         except Exception:
             pass
 
-# чтобы знать статус фазы "call" (нужен для фикстуры выше)
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
