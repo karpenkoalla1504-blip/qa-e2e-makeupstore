@@ -7,6 +7,9 @@ from selenium.webdriver.support import expected_conditions as EC
 
 
 class LoginPage:
+    def open_login_popup(self) -> bool:  # alias for backward compatibility
+    return self.open_login_form()
+
     # --- Точные локаторы (из твоего описания) ---
     LOGIN_ICON = (By.CSS_SELECTOR,
                   "body > div.site-wrap > div.main-wrap > header > div.header-middle > div > div.header-right-row > div.header-office")
