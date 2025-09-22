@@ -2,16 +2,26 @@ ID: SMK-001
 Title: Login (positive)
 Type: Smoke
 Priority: High
+
 Preconditions:
-  - Тестовый аккаунт существует (email/пароль заданы в секретах)
-Data:
-  - TEST_LOGIN_EMAIL / TEST_LOGIN_PASSWORD
+- A valid user account exists.
+- Credentials are stored in CI secrets or in a local .env file (TEST_LOGIN_EMAIL / TEST_LOGIN_PASSWORD).
+
 Steps:
-  1) Открыть https://makeupstore.com
-  2) Открыть форму входа
-  3) Ввести корректные email и пароль
-  4) Нажать Sign in / Log in
+1. Open https://makeupstore.com
+2. Click on the login icon (selector: .header-office).
+3. Enter a valid email in field #login.
+4. Enter a valid password in field #pw.
+5. Click the login button (#form-auth > … > button).
+6. Navigate to https://makeupstore.com/user/
+
 Expected Result:
-  - Пользователь авторизован: видна иконка профиля/Logout
-Links:
-  - Автотест: tests/smoke/test_login.py::test_login_positive
+- The user remains on https://makeupstore.com/user/ (no redirect to /#auth).
+- The personal account page is accessible.
+
+Postconditions:
+- The user is logged in.
+- Session is active.
+
+Automation link:
+- tests/smoke/test_login.py::test_login_positive
