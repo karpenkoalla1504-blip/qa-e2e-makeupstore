@@ -1,93 +1,81 @@
+from urllib.parse import urljoin
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait as W
+from selenium.webdriver.support import expected_conditions as EC
+from time import sleep  # ← ДОБАВИТЬ
+from urllib.parse import urljoin
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait as W
 from selenium.webdriver.support import expected_conditions as EC
 
 class LoginPage:
-    BTN_LOGIN_CANDIDATES = [
-        (By.CSS_SELECTOR, "a[href*='login']"),
-        (By.CSS_SELECTOR, "button[href*='login']"),
-        (By.CSS_SELECTOR, ".login-button"),
-        (By.LINK_TEXT, "Login"),
-        (By.PARTIAL_LINK_TEXT, "Log in"),
-        (By.CSS_SELECTOR, "[data-test='login']"),
-        (By.CSS_SELECTOR, ".header-login, .header .login"),
-    ]
-    INPUT_EMAIL_CANDIDATES = [
-        (By.CSS_SELECTOR, "input[type='email']"),
-        (By.CSS_SELECTOR, "input[name='email']"),
-        (By.CSS_SELECTOR, "#email"),
-    ]
-    INPUT_PASSWORD_CANDIDATES = [
-        (By.CSS_SELECTOR, "input[type='password']"),
-        (By.CSS_SELECTOR, "input[name='password']"),
-        (By.CSS_SELECTOR, "#password"),
-    ]
-    BTN_SUBMIT_CANDIDATES = [
-        (By.CSS_SELECTOR, "button[type='submit']"),
-        (By.CSS_SELECTOR, ".btn.login, .button.login, .auth-submit"),
-        (By.XPATH, "//button[contains(., 'Sign in') or contains(., 'Log in')]"),
-    ]
-    LOGGED_IN_MARKERS = [
-        (By.CSS_SELECTOR, ".header-profile, .user-avatar, [data-test='profile']"),
-        (By.XPATH, "//*[contains(., 'Logout') or contains(., 'Sign out')]"),
-    ]
-    ERROR_MARKERS = [
-        (By.CSS_SELECTOR, ".error, .error-message, .form-error, [data-test='login-error']"),
-        (By.XPATH, "//*[contains(., 'invalid') or contains(., 'Incorrect') or contains(., 'wrong')]"),
-    ]
+    # ТВОИ ТОЧНЫЕ ЛОКАТОРЫ (твои пути стоят первыми)
+    LOGIN_ICON = (By.CSS_SELECTOR, "body > div.site-wrap > div.main-wrap > header > div.header-middle > div > div.header-right-row > div.header-office")
+    LOGIN_ICON_FALLBACK = (By.CSS_SELECTOR, ".header-office")
+
+    INPUT_EMAIL = (By.CSS_SELECTOR, "#login")
+    INPUT_PASSWORD = (By.CSS_SELECTOR, "#pw")
+
+    SUBMIT_BTN = (By.CSS_SELECTOR, "#form-auth > div > div > div:nth-child(6) > button")
+    SUBMIT_BTN_FALLBACK = (By.CSS_SELECTOR, "#form-auth button[type='submit']")
 
     def __init__(self, driver, base_url):
         self.d = driver
-        self.base = base_url
+        self.base = base_url.rstrip("/")
+
+    # ======== низкоуровневые помощники ========
+    def _click(self, locator, timeout=10):
+        W(self.d, timeout).until(EC.element_to_be_clickable(locator)).click()
+
+    def _type(self, locator, text, timeout=10, clear=True):
+        el = W(self.d, timeout).until(EC.visibility_of_element_located(locator))
+        if clear:
+            try:
+                el.clear()
+            except Exception:
+                pass
+        el.send_keys(text)
 
     def open(self):
         self.d.get(self.base)
 
-    def _click_first_available(self, candidates, timeout=10):
-        for loc in candidates:
+    # ======== шаги логина ========
+    def open_login_popup(self):
+        """Кликаем по иконке, чтобы раскрылось окошко (не новый урл)."""
+        try:
+            self._click(self.LOGIN_ICON, timeout=8)
+            return True
+        except Exception:
             try:
-                W(self.d, timeout).until(EC.element_to_be_clickable(loc)).click()
+                self._click(self.LOGIN_ICON_FALLBACK, timeout=5)
                 return True
             except Exception:
-                continue
-        return False
+                return False
 
-    def _type_first_available(self, candidates, text, timeout=10, clear=True):
-        for loc in candidates:
-            try:
-                el = W(self.d, timeout).until(EC.visibility_of_element_located(loc))
-                if clear: el.clear()
-                el.send_keys(text)
+    from time import sleep
+
+    def fill_credentials_and_submit(self, email, password):
+        self._type(self.INPUT_EMAIL, email, timeout=10)
+        self._type(self.INPUT_PASSWORD, password, timeout=10)
+        try:
+            self._click(self.SUBMIT_BTN, timeout=10)
+        except Exception:
+            self._click(self.SUBMIT_BTN_FALLBACK, timeout=10)
+
+        # Ждём, что форма исчезнет или появится что-то новое
+        sleep(2)  # небольшой буфер после сабмита
+
+    def go_to_user_and_check_logged_in(self, timeout=10):
+        """
+        Пробуем несколько раз перейти на /user/, чтобы поймать успешный логин.
+        """
+        user_url = urljoin(self.base + "/", "user/")
+        for attempt in range(3):
+            self.d.get(user_url)
+            W(self.d, timeout).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            current = self.d.current_url
+            if current.startswith(user_url):
                 return True
-            except Exception:
-                continue
+            sleep(2)  # ждём и пробуем ещё раз
         return False
 
-    def open_login_form(self):
-        return self._click_first_available(self.BTN_LOGIN_CANDIDATES)
-
-    def submit(self):
-        return self._click_first_available(self.BTN_SUBMIT_CANDIDATES)
-
-    def login(self, email, password):
-        self._type_first_available(self.INPUT_EMAIL_CANDIDATES, email)
-        self._type_first_available(self.INPUT_PASSWORD_CANDIDATES, password)
-        self.submit()
-
-    def is_logged_in(self, timeout=10):
-        for loc in self.LOGGED_IN_MARKERS:
-            try:
-                W(self.d, timeout).until(EC.presence_of_element_located(loc))
-                return True
-            except Exception:
-                continue
-        return False
-
-    def has_error(self, timeout=5):
-        for loc in self.ERROR_MARKERS:
-            try:
-                W(self.d, timeout).until(EC.presence_of_element_located(loc))
-                return True
-            except Exception:
-                continue
-        return False
