@@ -5,15 +5,14 @@ pipeline {
     BASE_URL            = "https://makeupstore.com"
     TEST_LOGIN_EMAIL    = credentials('TEST_LOGIN_EMAIL')
     TEST_LOGIN_PASSWORD = credentials('TEST_LOGIN_PASSWORD')
-    HEADLESS            = "true"      // в CI без окна
+    HEADLESS            = "true"
     PYTHONWARNINGS      = "ignore"
   }
 
-  // еженедельно: понедельник около 04:00 времени Jenkins
   triggers { cron('H 4 * * 1') }
 
   options {
-    ansiColor('xterm'); timestamps()
+    timestamps()
     buildDiscarder(logRotator(numToKeepStr: '30'))
   }
 
@@ -62,8 +61,14 @@ pipeline {
     stage('Publish Allure') {
       when { expression { return fileExists('reports/allure') } }
       steps {
-        // Требует настроенный Allure tool (name: "allure")
-        allure includeProperties: false, jdk: '', results: [[path: 'reports/allure']]
+        // Сработает, только если установлен Allure Jenkins Plugin и настроен tool
+        script {
+          try {
+            allure includeProperties: false, jdk: '', results: [[path: 'reports/allure']]
+          } catch (err) {
+            echo "Allure plugin not configured, skipping. ${err}"
+          }
+        }
       }
     }
   }
