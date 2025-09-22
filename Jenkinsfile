@@ -9,7 +9,7 @@ pipeline {
     PYTHONWARNINGS      = "ignore"
   }
 
-  triggers { cron('H 4 * * 1') }
+  triggers { cron('H 4 * * 1') } // еженедельно
 
   options {
     timestamps()
@@ -61,7 +61,6 @@ pipeline {
     stage('Publish Allure') {
       when { expression { return fileExists('reports/allure') } }
       steps {
-        // Сработает, только если установлен Allure Jenkins Plugin и настроен tool
         script {
           try {
             allure includeProperties: false, jdk: '', results: [[path: 'reports/allure']]
