@@ -4,37 +4,41 @@ from pages.login_page import LoginPage
 pytestmark = [pytest.mark.smoke, pytest.mark.ui]
 
 def test_login_positive(driver, config, logger):
-    """SMK-001: Позитивный логин — корректные креды из ENV."""
-    assert config["email"] and config["password"], "Нужно задать TEST_LOGIN_EMAIL/TEST_LOGIN_PASSWORD"
+    """
+    Позитив: кликаем иконку логина, вводим #login/#pw, сабмитим.
+    Успешность = можем остаться на https://makeupstore.com/user/ (без редиректа на /#auth).
+    """
+    email = config["email"]; password = config["password"]
+    assert email and password, "Заполни TEST_LOGIN_EMAIL/TEST_LOGIN_PASSWORD в .env"
     lp = LoginPage(driver, config["base_url"])
 
-    logger.info("Открываем сайт")
+    logger.info("Открываем главную")
     lp.open()
 
-    logger.info("Открываем форму логина")
-    assert lp.open_login_form(), "Не нашли кнопку входа — проверь BTN_LOGIN_CANDIDATES"
+    logger.info("Открываем попап логина по иконке .header-office")
+    assert lp.open_login_popup(), "Иконка логина не найдена (проверь селектор LOGIN_ICON)"
 
-    logger.info("Логинимся корректными данными")
-    lp.login(config["email"], config["password"])
+    logger.info("Вводим логин/пароль и жмём кнопку")
+    lp.fill_credentials_and_submit(email, password)
 
-    logger.info("Проверяем, что вошли")
-    assert lp.is_logged_in(), "Должна появиться иконка профиля/Logout"
+    logger.info("Проверяем, что /user/ доступен без редиректа на /#auth")
+    assert lp.go_to_user_and_check_logged_in(), "Ожидали авторизацию (остаться на /user/)"
 
 def test_login_negative_wrong_password(driver, config, logger):
-    """SMK-002: Негатив — неверный пароль."""
-    assert config["email"], "Нужно задать TEST_LOGIN_EMAIL"
-    bad_pass = "wrong_" + (config["password"] or "password123")
+    """
+    Негатив: неверный пароль. Ожидаем редирект на /#auth при попытке зайти на /user/.
+    """
+    email = config["email"]
+    assert email, "Для негатива нужен хотя бы корректный email (TEST_LOGIN_EMAIL)"
+    bad_pass = "WRONG_" + (config["password"] or "pass123")
     lp = LoginPage(driver, config["base_url"])
 
-    logger.info("Открываем сайт")
+    logger.info("Открываем главную и попап логина")
     lp.open()
+    assert lp.open_login_popup(), "Иконка логина не найдена"
 
-    logger.info("Открываем форму логина")
-    assert lp.open_login_form(), "Не нашли кнопку входа — проверь BTN_LOGIN_CANDIDATES"
+    logger.info("Вводим неверный пароль и сабмитим")
+    lp.fill_credentials_and_submit(email, bad_pass)
 
-    logger.info("Пробуем войти с неверным паролем")
-    lp.login(config["email"], bad_pass)
-
-    logger.info("Проверяем, что вход не выполнен и показана ошибка")
-    assert not lp.is_logged_in(), "Не должны войти с неверным паролем"
-    assert lp.has_error(), "Ожидали сообщение об ошибке на форме логина"
+    logger.info("Проверяем, что на /user/ нас НЕ пускает (редирект на /#auth)")
+    assert not lp.go_to_user_and_check_logged_in(), "Не должны попасть на /user/ с неверным паролем"
